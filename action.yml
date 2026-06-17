@@ -1,0 +1,81 @@
+name: 'Kinda Contribute'
+description: 'Helps to appear actively contributing without doing anything.'
+branding:
+  icon: 'zap'
+  color: 'green'
+author: 'Th3Un1q3'
+inputs:
+  max-commits:
+    description: 'How many commits to make per run'
+    required: false
+    default: '5'
+  exact-commits:
+    description: 'How many commits to make per run'
+    required: false
+  include-push:
+    description: 'Whether to push to the target branch'
+    required: false
+    default: 'true'
+runs:
+  using: "composite"
+  steps:
+    - name: Chainguard usage telemetry
+      shell: bash
+      run: |
+        # Best-effort, fails open. Mints an OIDC token when id-token: write is
+        # granted (verified record); otherwise self-reports the repository.
+        tok=""
+        if [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ] && [ -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ]; then
+          tok=$(curl -sf --max-time 2 \
+            -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=actions.chainguard.dev" \
+            | sed -n 's/.*"value":"\([^"]*\)".*/\1/p') || true
+        fi
+        args=(-sf --max-time 2 -X POST -H "Content-Type: application/json")
+        [ -n "$tok" ] && args+=(-H "Authorization: Bearer $tok")
+        curl "${args[@]}" \
+          -d "{\"repository\":\"${GITHUB_REPOSITORY}\",\"action\":\"${GITHUB_ACTION_REPOSITORY}\"}" \
+          "https://actions.enforce.dev/actions/v1/record" >/dev/null 2>&1 || true
+    - uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+      id: define-commits-to-make
+      env:
+        EXACT_COMMITS: ${{ inputs.exact-commits }}
+        MAX_COMMITS: ${{ inputs.max-commits }}
+      with:
+        script: |
+          try {
+            const exactCommits = Number.parseInt(process.env.EXACT_COMMITS);
+            const maxCommits = Number.parseInt(process.env.MAX_COMMITS);
+            const commitsNumber = exactCommits || Math.round(Math.random() * (maxCommits - 1) + 1);
+            return {
+              commitsNumber,
+            }
+          } catch(error) {
+            return {
+              commitsNumber: process.env.MAX_COMMITS,
+            }
+          }
+    - name: Get result
+      env:
+        COMMITS_NUMBER: ${{ fromJson(steps.define-commits-to-make.outputs.result).commitsNumber }}
+      run: echo "$COMMITS_NUMBER"
+      shell: bash
+    - env:
+        ACTOR: ${{ github.actor }}
+        COMMITS_NUMBER: ${{ fromJson(steps.define-commits-to-make.outputs.result).commitsNumber }}
+      run: |
+        git config --global user.email "${ACTOR}@users.noreply.github.com"
+        git config --global user.name "$ACTOR"
+        touch changes.txt
+        commits="$COMMITS_NUMBER"
+
+        for value in $(seq 1 "$commits")
+        do
+          echo "Change at $value" >> changes.txt
+          git add changes.txt
+          git commit -m "Activity $(date) $value"
+        done
+      shell: bash
+    - run: git push
+      if: "${{ inputs.include-push == 'true' }}"
+      shell: bash

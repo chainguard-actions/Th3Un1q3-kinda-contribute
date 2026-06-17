@@ -1,0 +1,63 @@
+name: Test max-commits (no push)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_ACTOR: test-user
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Configure git
+        run: |
+          git config --global user.email "test-user@users.noreply.github.com"
+          git config --global user.name "test-user"
+
+      - name: Record commit count before action
+        id: before
+        run: |
+          count=$(git rev-list --count HEAD)
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "Commits before: $count"
+
+      - id: action
+        uses: .
+        with:
+          max-commits: '4'
+          include-push: 'false'
+
+      - name: Assert changes.txt exists
+        run: |
+          if [ ! -f changes.txt ]; then
+            echo "FAIL: changes.txt was not created"
+            exit 1
+          fi
+          echo "PASS: changes.txt exists"
+
+      - name: Assert commit count is within expected range
+        env:
+          BEFORE: ${{ steps.before.outputs.count }}
+        run: |
+          after=$(git rev-list --count HEAD)
+          new_commits=$((after - BEFORE))
+          echo "Commits before: $BEFORE, after: $after, new: $new_commits"
+          if [ "$new_commits" -lt 1 ] || [ "$new_commits" -gt 4 ]; then
+            echo "FAIL: expected between 1 and 4 new commits, got $new_commits"
+            exit 1
+          fi
+          echo "PASS: commit count $new_commits is within range [1, 4]"
+
+      - name: Assert changes.txt line count matches commit count
+        env:
+          BEFORE: ${{ steps.before.outputs.count }}
+        run: |
+          lines=$(wc -l < changes.txt | tr -d ' ')
+          after=$(git rev-list --count HEAD)
+          new_commits=$((after - BEFORE))
+          echo "Lines in changes.txt: $lines, New commits: $new_commits"
+          if [ "$lines" -ne "$new_commits" ]; then
+            echo "FAIL: lines ($lines) does not match new commit count ($new_commits)"
+            exit 1
+          fi
+          echo "PASS: lines match commit count"

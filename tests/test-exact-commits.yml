@@ -1,0 +1,59 @@
+name: Test exact commits (no push)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_ACTOR: test-user
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Configure git
+        run: |
+          git config --global user.email "test-user@users.noreply.github.com"
+          git config --global user.name "test-user"
+
+      - name: Record commit count before action
+        id: before
+        run: |
+          count=$(git rev-list --count HEAD)
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "Commits before: $count"
+
+      - id: action
+        uses: .
+        with:
+          exact-commits: '3'
+          include-push: 'false'
+
+      - name: Assert changes.txt exists
+        run: |
+          if [ ! -f changes.txt ]; then
+            echo "FAIL: changes.txt was not created"
+            exit 1
+          fi
+          echo "PASS: changes.txt exists"
+
+      - name: Assert correct number of lines in changes.txt
+        run: |
+          lines=$(wc -l < changes.txt | tr -d ' ')
+          echo "Lines in changes.txt: $lines"
+          if [ "$lines" -ne 3 ]; then
+            echo "FAIL: expected 3 lines, got $lines"
+            exit 1
+          fi
+          echo "PASS: changes.txt has 3 lines"
+
+      - name: Assert correct number of commits were made
+        env:
+          BEFORE: ${{ steps.before.outputs.count }}
+        run: |
+          after=$(git rev-list --count HEAD)
+          new_commits=$((after - BEFORE))
+          echo "Commits before: $BEFORE, after: $after, new: $new_commits"
+          if [ "$new_commits" -ne 3 ]; then
+            echo "FAIL: expected 3 new commits, got $new_commits"
+            exit 1
+          fi
+          echo "PASS: 3 new commits found"
