@@ -1,0 +1,57 @@
+name: Test exact commits
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Configure git identity
+        run: |
+          git config --global user.email "test@example.com"
+          git config --global user.name "Test User"
+
+      - name: Record initial state
+        run: |
+          initial_lines=$(grep -c "Change at" changes.txt 2>/dev/null || echo "0")
+          initial_commits=$(git log --oneline | grep -c "Activity" 2>/dev/null || echo "0")
+          echo "INITIAL_LINES=$initial_lines" >> "$GITHUB_ENV"
+          echo "INITIAL_COMMITS=$initial_commits" >> "$GITHUB_ENV"
+          echo "Initial lines: $initial_lines, Initial commits: $initial_commits"
+
+      - id: action
+        uses: .
+        with:
+          exact-commits: '3'
+          include-push: 'false'
+
+      - name: Assert changes.txt exists
+        run: |
+          if [ ! -f changes.txt ]; then
+            echo "FAIL: changes.txt was not created"
+            exit 1
+          fi
+          echo "PASS: changes.txt exists"
+
+      - name: Assert correct number of new lines in changes.txt
+        run: |
+          total_lines=$(grep -c "Change at" changes.txt 2>/dev/null || echo "0")
+          new_lines=$((total_lines - INITIAL_LINES))
+          echo "total lines: $total_lines, initial lines: $INITIAL_LINES, new lines: $new_lines"
+          if [ "$new_lines" -ne 3 ]; then
+            echo "FAIL: expected 3 new lines in changes.txt, got $new_lines"
+            exit 1
+          fi
+          echo "PASS: changes.txt has 3 new lines"
+
+      - name: Assert correct number of new commits were made
+        run: |
+          total_commits=$(git log --oneline | grep -c "Activity" 2>/dev/null || echo "0")
+          new_commits=$((total_commits - INITIAL_COMMITS))
+          echo "total activity commits: $total_commits, initial: $INITIAL_COMMITS, new: $new_commits"
+          if [ "$new_commits" -ne 3 ]; then
+            echo "FAIL: expected 3 new activity commits, got $new_commits"
+            exit 1
+          fi
+          echo "PASS: 3 new activity commits found"

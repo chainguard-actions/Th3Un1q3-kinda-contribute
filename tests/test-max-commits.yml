@@ -1,0 +1,60 @@
+name: Test max commits
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Configure git identity
+        run: |
+          git config --global user.email "test@example.com"
+          git config --global user.name "Test User"
+
+      - name: Record initial state
+        run: |
+          initial_lines=$(grep -c "Change at" changes.txt 2>/dev/null || echo "0")
+          initial_commits=$(git log --oneline | grep -c "Activity" 2>/dev/null || echo "0")
+          echo "INITIAL_LINES=$initial_lines" >> "$GITHUB_ENV"
+          echo "INITIAL_COMMITS=$initial_commits" >> "$GITHUB_ENV"
+          echo "Initial lines: $initial_lines, Initial commits: $initial_commits"
+
+      - id: action
+        uses: .
+        with:
+          max-commits: '5'
+          include-push: 'false'
+
+      - name: Assert changes.txt exists
+        run: |
+          if [ ! -f changes.txt ]; then
+            echo "FAIL: changes.txt was not created"
+            exit 1
+          fi
+          echo "PASS: changes.txt exists"
+
+      - name: Assert number of new commits is within range
+        run: |
+          total_commits=$(git log --oneline | grep -c "Activity" 2>/dev/null || echo "0")
+          new_commits=$((total_commits - INITIAL_COMMITS))
+          echo "total activity commits: $total_commits, initial: $INITIAL_COMMITS, new: $new_commits"
+          if [ "$new_commits" -lt 1 ] || [ "$new_commits" -gt 5 ]; then
+            echo "FAIL: expected between 1 and 5 new activity commits, got $new_commits"
+            exit 1
+          fi
+          echo "PASS: $new_commits new activity commits found (within range 1-5)"
+
+      - name: Assert new changes.txt lines match new commit count
+        run: |
+          total_lines=$(grep -c "Change at" changes.txt 2>/dev/null || echo "0")
+          total_commits=$(git log --oneline | grep -c "Activity" 2>/dev/null || echo "0")
+          new_lines=$((total_lines - INITIAL_LINES))
+          new_commits=$((total_commits - INITIAL_COMMITS))
+          echo "new lines in changes.txt: $new_lines"
+          echo "new activity commits: $new_commits"
+          if [ "$new_lines" -ne "$new_commits" ]; then
+            echo "FAIL: new lines in changes.txt ($new_lines) does not match new commit count ($new_commits)"
+            exit 1
+          fi
+          echo "PASS: new lines and new commits match"
