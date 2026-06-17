@@ -1,0 +1,70 @@
+name: Test max-commits input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_ACTOR: test-user
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Configure git
+        run: |
+          git config --global user.email "test-user@users.noreply.github.com"
+          git config --global user.name "test-user"
+
+      - name: Record pre-action commit count
+        id: pre-count
+        run: |
+          COUNT=$(git log --oneline | wc -l | tr -d ' ')
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "Pre-action commit count: $COUNT"
+
+      - id: action
+        uses: .
+        with:
+          max-commits: '4'
+          include-push: 'false'
+
+      - name: Debug post-action state
+        run: |
+          echo "=== Post-action git log ==="
+          git log --oneline -10 || true
+          echo "=== changes.txt content ==="
+          cat "$GITHUB_WORKSPACE/changes.txt" || echo "(file not found)"
+
+      - name: Assert changes.txt was created
+        run: |
+          if [ ! -f "$GITHUB_WORKSPACE/changes.txt" ]; then
+            echo "FAIL: changes.txt was not created"
+            exit 1
+          fi
+          echo "PASS: changes.txt exists"
+
+      - name: Assert number of new commits is within expected range
+        id: commit-check
+        env:
+          PRE_COUNT: ${{ steps.pre-count.outputs.count }}
+        run: |
+          TOTAL=$(git log --oneline | wc -l | tr -d ' ')
+          COMMIT_COUNT=$((TOTAL - PRE_COUNT))
+          echo "pre-action commits: $PRE_COUNT, total: $TOTAL, new commits: $COMMIT_COUNT"
+          echo "commit_count=$COMMIT_COUNT" >> "$GITHUB_OUTPUT"
+          if [ "$COMMIT_COUNT" -lt 1 ] || [ "$COMMIT_COUNT" -gt 4 ]; then
+            echo "FAIL: expected between 1 and 4 new commits, got $COMMIT_COUNT"
+            exit 1
+          fi
+          echo "PASS: commit count $COMMIT_COUNT is within expected range [1, 4]"
+
+      - name: Assert changes.txt line count matches commit count
+        env:
+          COMMIT_COUNT: ${{ steps.commit-check.outputs.commit_count }}
+        run: |
+          LINE_COUNT=$(wc -l < "$GITHUB_WORKSPACE/changes.txt" | tr -d ' ')
+          echo "line count: $LINE_COUNT, commit count: $COMMIT_COUNT"
+          if [ "$LINE_COUNT" -ne "$COMMIT_COUNT" ]; then
+            echo "FAIL: changes.txt line count ($LINE_COUNT) does not match commit count ($COMMIT_COUNT)"
+            exit 1
+          fi
+          echo "PASS: line count matches commit count"

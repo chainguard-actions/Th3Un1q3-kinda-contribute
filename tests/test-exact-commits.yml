@@ -1,0 +1,66 @@
+name: Test exact-commits input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_ACTOR: test-user
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Configure git
+        run: |
+          git config --global user.email "test-user@users.noreply.github.com"
+          git config --global user.name "test-user"
+
+      - name: Record pre-action commit count
+        id: pre-count
+        run: |
+          COUNT=$(git log --oneline | wc -l | tr -d ' ')
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "Pre-action commit count: $COUNT"
+
+      - id: action
+        uses: .
+        with:
+          exact-commits: '3'
+          include-push: 'false'
+
+      - name: Debug post-action state
+        run: |
+          echo "=== Post-action git log ==="
+          git log --oneline -10 || true
+          echo "=== changes.txt content ==="
+          cat "$GITHUB_WORKSPACE/changes.txt" || echo "(file not found)"
+
+      - name: Assert changes.txt was created
+        run: |
+          if [ ! -f "$GITHUB_WORKSPACE/changes.txt" ]; then
+            echo "FAIL: changes.txt was not created"
+            exit 1
+          fi
+          echo "PASS: changes.txt exists"
+
+      - name: Assert correct number of lines in changes.txt
+        run: |
+          LINE_COUNT=$(wc -l < "$GITHUB_WORKSPACE/changes.txt" | tr -d ' ')
+          echo "actual line count: $LINE_COUNT"
+          if [ "$LINE_COUNT" -ne 3 ]; then
+            echo "FAIL: expected 3 lines in changes.txt, got $LINE_COUNT"
+            exit 1
+          fi
+          echo "PASS: changes.txt has 3 lines"
+
+      - name: Assert correct number of commits were made
+        env:
+          PRE_COUNT: ${{ steps.pre-count.outputs.count }}
+        run: |
+          TOTAL=$(git log --oneline | wc -l | tr -d ' ')
+          COMMIT_COUNT=$((TOTAL - PRE_COUNT))
+          echo "pre-action commits: $PRE_COUNT, total: $TOTAL, new commits: $COMMIT_COUNT"
+          if [ "$COMMIT_COUNT" -ne 3 ]; then
+            echo "FAIL: expected 3 new commits, got $COMMIT_COUNT"
+            exit 1
+          fi
+          echo "PASS: 3 commits were made"

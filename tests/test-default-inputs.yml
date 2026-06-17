@@ -1,0 +1,57 @@
+name: Test default inputs
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_ACTOR: test-user
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Configure git
+        run: |
+          git config --global user.email "test-user@users.noreply.github.com"
+          git config --global user.name "test-user"
+
+      - name: Record pre-action commit count
+        id: pre-count
+        run: |
+          COUNT=$(git log --oneline | wc -l | tr -d ' ')
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "Pre-action commit count: $COUNT"
+
+      - id: action
+        uses: .
+        with:
+          include-push: 'false'
+
+      - name: Debug post-action state
+        run: |
+          echo "=== Post-action git log ==="
+          git log --oneline -10 || true
+          echo "=== Files in workspace ==="
+          ls -la "$GITHUB_WORKSPACE" || true
+          echo "=== changes.txt content ==="
+          cat "$GITHUB_WORKSPACE/changes.txt" || echo "(file not found)"
+
+      - name: Assert changes.txt was created
+        run: |
+          if [ ! -f "$GITHUB_WORKSPACE/changes.txt" ]; then
+            echo "FAIL: changes.txt was not created"
+            exit 1
+          fi
+          echo "PASS: changes.txt exists"
+
+      - name: Assert number of new commits is within default max range (1-5)
+        env:
+          PRE_COUNT: ${{ steps.pre-count.outputs.count }}
+        run: |
+          TOTAL=$(git log --oneline | wc -l | tr -d ' ')
+          COMMIT_COUNT=$((TOTAL - PRE_COUNT))
+          echo "pre-action commits: $PRE_COUNT, total: $TOTAL, new commits: $COMMIT_COUNT"
+          if [ "$COMMIT_COUNT" -lt 1 ] || [ "$COMMIT_COUNT" -gt 5 ]; then
+            echo "FAIL: expected between 1 and 5 new commits (default max-commits=5), got $COMMIT_COUNT"
+            exit 1
+          fi
+          echo "PASS: commit count $COMMIT_COUNT is within default range [1, 5]"
