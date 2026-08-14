@@ -1,0 +1,36 @@
+name: 'Test Contribution Manually'
+on:
+  workflow_dispatch:
+    inputs:
+      max-commits:
+        description: 'Maximum number of commits to make'
+        required: false
+        default: '5'
+      exact-commits:
+        description: 'Exact number of commits to make(overrides max-commits)'
+        required: false
+      target-branch-ref:
+        description: 'Target branch ref to push to(e.g. main, development)'
+        required: false
+
+permissions: {}
+
+jobs:
+  run:
+    name: Test In Workflow
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3
+        with:
+          ref: "${{ inputs.target-branch-ref }}"
+          # It's required to use your personal access token
+          # in order to make it look like it's your activity.
+          # The token must be enabled for the private repo scopes.
+          # [Action Docs](https://github.com/actions/checkout#usage)
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+      - uses: 'Th3Un1q3/kinda-contribute@dcca072696848613f4d1bd590402dd31d0fa09d6' # main
+        with:
+          max-commits: ${{ inputs.max-commits }}
+          exact-commits: ${{ inputs.exact-commits }}

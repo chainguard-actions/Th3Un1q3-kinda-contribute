@@ -1,0 +1,59 @@
+name: Test include-push functionality
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Configure git and set up local remote
+        run: |
+          git config --global user.email "test@example.com"
+          git config --global user.name "Test User"
+          # Create a bare repo inside GITHUB_WORKSPACE so it's reachable
+          rm -rf "$GITHUB_WORKSPACE/.git-remote"
+          git init --bare "$GITHUB_WORKSPACE/.git-remote"
+          git push "$GITHUB_WORKSPACE/.git-remote" HEAD:refs/heads/act-harness
+          git remote set-url origin "$GITHUB_WORKSPACE/.git-remote" 2>/dev/null || \
+            git remote add origin "$GITHUB_WORKSPACE/.git-remote"
+          git fetch origin
+          git branch --set-upstream-to=origin/act-harness act-harness
+
+      - name: Record commit count before action
+        id: before
+        run: |
+          COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "0")
+          echo "local_count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "Before local count: $COUNT"
+
+      - id: action
+        uses: .
+        with:
+          exact-commits: '1'
+          include-push: 'true'
+
+      - name: Assert commit was pushed to remote
+        env:
+          LOCAL_BEFORE: ${{ steps.before.outputs.local_count }}
+        run: |
+          LOCAL_AFTER=$(git rev-list --count HEAD 2>/dev/null || echo "0")
+          echo "local commits before: $LOCAL_BEFORE"
+          echo "local commits after:  $LOCAL_AFTER"
+          LOCAL_DIFF=$((LOCAL_AFTER - LOCAL_BEFORE))
+          echo "new local commits: $LOCAL_DIFF"
+          if [ "$LOCAL_DIFF" -ne 1 ]; then
+            echo "FAIL: expected exactly 1 new local commit, got $LOCAL_DIFF"
+            exit 1
+          fi
+
+          # Verify the push reached the remote bare repo
+          REMOTE_COUNT=$(git -C "$GITHUB_WORKSPACE/.git-remote" rev-list --count refs/heads/act-harness)
+          echo "remote commit count: $REMOTE_COUNT"
+          if [ "$REMOTE_COUNT" -le "$LOCAL_BEFORE" ]; then
+            echo "FAIL: remote does not appear to have received the pushed commit"
+            exit 1
+          fi
+          echo "PASS: commit was pushed to remote (remote has $REMOTE_COUNT commits)"
