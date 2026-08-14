@@ -1,0 +1,69 @@
+name: Test include-push enabled (push to local remote)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Configure git identity and set up local remote
+        run: |
+          git config --global user.email "test@example.com"
+          git config --global user.name "Test User"
+          # Create a bare repo under GITHUB_WORKSPACE so it is reachable
+          # from inside the composite action's shell steps
+          rm -rf "$GITHUB_WORKSPACE/.git-remote"
+          git init --bare "$GITHUB_WORKSPACE/.git-remote"
+          git push "$GITHUB_WORKSPACE/.git-remote" HEAD:refs/heads/act-harness
+          git remote set-url origin "$GITHUB_WORKSPACE/.git-remote" 2>/dev/null || \
+            git remote add origin "$GITHUB_WORKSPACE/.git-remote"
+          # Configure push.default so "git push" without args works
+          git config --global push.default current
+          # Ensure the local branch tracks the new remote
+          git branch --set-upstream-to=origin/act-harness 2>/dev/null || true
+
+      - name: Record commit count before action
+        id: before
+        run: echo "count=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
+
+      - id: action
+        uses: .
+        with:
+          exact-commits: '1'
+          include-push: 'true'
+
+      - name: Assert commit was made locally
+        env:
+          BEFORE: ${{ steps.before.outputs.count }}
+        run: |
+          AFTER=$(git rev-list --count HEAD)
+          ADDED=$((AFTER - BEFORE))
+          echo "commits added: $ADDED"
+          if [ "$ADDED" -ne 1 ]; then
+            echo "FAIL: expected exactly 1 new commit, got $ADDED"
+            exit 1
+          fi
+          echo "PASS: 1 commit added"
+
+      - name: Assert commit was pushed to remote
+        run: |
+          REMOTE_COUNT=$(git ls-remote "$GITHUB_WORKSPACE/.git-remote" refs/heads/act-harness | wc -l)
+          echo "remote ref count: $REMOTE_COUNT"
+          # Verify the remote has the branch (push succeeded)
+          if [ "$REMOTE_COUNT" -lt 1 ]; then
+            echo "FAIL: remote branch not found after push"
+            exit 1
+          fi
+          # Verify the remote HEAD matches local HEAD
+          LOCAL_SHA=$(git rev-parse HEAD)
+          REMOTE_SHA=$(git ls-remote "$GITHUB_WORKSPACE/.git-remote" refs/heads/act-harness | awk '{print $1}')
+          echo "local SHA:  $LOCAL_SHA"
+          echo "remote SHA: $REMOTE_SHA"
+          if [ "$LOCAL_SHA" != "$REMOTE_SHA" ]; then
+            echo "FAIL: remote SHA does not match local HEAD after push"
+            exit 1
+          fi
+          echo "PASS: push succeeded, remote matches local HEAD"

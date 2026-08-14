@@ -1,4 +1,4 @@
-name: Test exact-commits input
+name: Test basic usage (default max-commits, no push)
 on:
   workflow_dispatch:
 jobs:
@@ -21,10 +21,18 @@ jobs:
       - id: action
         uses: .
         with:
-          exact-commits: '2'
+          max-commits: '3'
           include-push: 'false'
 
-      - name: Assert exactly 2 commits were made
+      - name: Assert changes.txt was created
+        run: |
+          if [ ! -f changes.txt ]; then
+            echo "FAIL: changes.txt was not created"
+            exit 1
+          fi
+          echo "PASS: changes.txt exists"
+
+      - name: Assert commits were made
         env:
           BEFORE: ${{ steps.before.outputs.count }}
         run: |
@@ -33,18 +41,12 @@ jobs:
           echo "commits after:  $AFTER"
           ADDED=$((AFTER - BEFORE))
           echo "commits added: $ADDED"
-          if [ "$ADDED" -ne 2 ]; then
-            echo "FAIL: expected exactly 2 new commits, got $ADDED"
+          if [ "$ADDED" -lt 1 ]; then
+            echo "FAIL: expected at least 1 new commit, got $ADDED"
             exit 1
           fi
-          echo "PASS: exactly 2 commits added"
-
-      - name: Assert changes.txt has 2 lines
-        run: |
-          LINES=$(wc -l < changes.txt)
-          echo "lines in changes.txt: $LINES"
-          if [ "$LINES" -ne 2 ]; then
-            echo "FAIL: expected 2 lines in changes.txt, got $LINES"
+          if [ "$ADDED" -gt 3 ]; then
+            echo "FAIL: expected at most 3 new commits (max-commits=3), got $ADDED"
             exit 1
           fi
-          echo "PASS: changes.txt has 2 lines"
+          echo "PASS: $ADDED commit(s) added (within 1..3 range)"

@@ -1,0 +1,27 @@
+on:
+  schedule:
+    # Desired contribution schedule
+    # [More about scheduled running](https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#schedule)
+    - cron: '0 15 * * 1-5'
+
+permissions: {}
+
+jobs:
+    run:
+      name: Populate Contributions
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3
+          with:
+            # Target Branch to commit to
+            ref: usage
+            # It's required to use your personal access token
+            # in order to make it look like it's your activity.
+            # The token must be enabled for the private repo scopes.
+            # [Action Docs](https://github.com/actions/checkout#usage)
+            token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+
+        - uses: 'Th3Un1q3/kinda-contribute@9984bd619f7b4528b4dd7b365ac1c9a56fff0a2b' # main
+          with:
+                # Defines range from 1 to 10(in this case) of commits to make
+                max-commits: 10

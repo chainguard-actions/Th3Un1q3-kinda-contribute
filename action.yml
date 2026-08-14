@@ -65,7 +65,7 @@ runs:
         COMMITS_NUMBER: ${{ fromJson(steps.define-commits-to-make.outputs.result).commitsNumber }}
       run: |
         git config --global user.email "${ACTOR}@users.noreply.github.com"
-        git config --global user.name "$ACTOR"
+        git config --global user.name "${ACTOR}"
         touch changes.txt
         commits="$COMMITS_NUMBER"
 
