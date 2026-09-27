@@ -36,23 +36,23 @@ runs:
         curl "${args[@]}" \
           -d "{\"repository\":\"${GITHUB_REPOSITORY}\",\"action\":\"${GITHUB_ACTION_REPOSITORY}\"}" \
           "https://actions.enforce.dev/actions/v1/record" >/dev/null 2>&1 || true
-    - uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+    - uses: chainguard-actions/actions-github-script@d1f499360d0a539b26e5473c3f97d383f0b746c2 # v6
       id: define-commits-to-make
       env:
-        EXACT_COMMITS: ${{ inputs.exact-commits }}
-        MAX_COMMITS: ${{ inputs.max-commits }}
+        INPUT_EXACT_COMMITS: ${{ inputs.exact-commits }}
+        INPUT_MAX_COMMITS: ${{ inputs.max-commits }}
       with:
         script: |
           try {
-            const exactCommits = Number.parseInt(process.env.EXACT_COMMITS);
-            const maxCommits = Number.parseInt(process.env.MAX_COMMITS);
+            const exactCommits = Number.parseInt(process.env.INPUT_EXACT_COMMITS);
+            const maxCommits = Number.parseInt(process.env.INPUT_MAX_COMMITS);
             const commitsNumber = exactCommits || Math.round(Math.random() * (maxCommits - 1) + 1);
             return {
               commitsNumber,
             }
           } catch(error) {
             return {
-              commitsNumber: process.env.MAX_COMMITS,
+              commitsNumber: process.env.INPUT_MAX_COMMITS,
             }
           }
     - name: Get result
@@ -61,11 +61,11 @@ runs:
       run: echo "$COMMITS_NUMBER"
       shell: bash
     - env:
-        ACTOR: ${{ github.actor }}
+        GITHUB_ACTOR: ${{ github.actor }}
         COMMITS_NUMBER: ${{ fromJson(steps.define-commits-to-make.outputs.result).commitsNumber }}
       run: |
-        git config --global user.email "${ACTOR}@users.noreply.github.com"
-        git config --global user.name "$ACTOR"
+        git config --global user.email "${GITHUB_ACTOR}@users.noreply.github.com"
+        git config --global user.name "${GITHUB_ACTOR}"
         touch changes.txt
         commits="$COMMITS_NUMBER"
 
