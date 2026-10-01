@@ -10,13 +10,18 @@
 
 **Harden Agent Version:** `2`
 
-Action **Th3Un1q3--kinda-contribute/v1.0.3** was hardened automatically. 3 finding(s) were identified and resolved across 2 iteration(s).
+Action **Th3Un1q3--kinda-contribute/v1.0.3** was hardened automatically. 2 finding(s) were identified and resolved across 2 iteration(s).
 
 ## Findings Fixed
 
 ### script-injection (severity: high)
 
-Rule (a): Direct expression interpolation inside run: shell blocks. In the 'Get result' step, `${{ fromJson(steps.define-commits-to-make.outputs.result).commitsNumber }}` is interpolated directly into the shell command string (line 38). In the following run: block, `${{ github.actor }}` is interpolated directly into git config commands (lines 42–43) and `${{ fromJson(steps.define-commits-to-make.outputs.result).commitsNumber }}` is assigned to a shell variable without quoting (line 45). Any ${{ ... }} expression inside a run: block is a script-injection risk because YAML template substitution happens before the shell ever sees the value, allowing an attacker-controlled value to inject shell metacharacters.
+Multiple ${{ }} expressions are interpolated directly inside run: shell command strings, violating rule (a). This allows attacker-controlled values to be injected as shell code before the shell ever sees them.
+
+1. Line 38: `run: echo "${{ fromJson(steps.define-commits-to-make.outputs.result).commitsNumber }}"` — steps output interpolated directly into shell.
+2. Line 42: `git config --global user.email "${{ github.actor }}@users.noreply.github.com"` — github.actor (attacker-controlled) interpolated directly into shell.
+3. Line 43: `git config --global user.name "${{ github.actor }}"` — same issue.
+4. Line 45: `commits=${{ fromJson(steps.define-commits-to-make.outputs.result).commitsNumber }}` — steps output interpolated directly and unquoted (also violates rule b: unquoted shell variable assignment from untrusted data).
 
 Locations:
 
@@ -27,34 +32,22 @@ Locations:
 
 ### unpinned-uses (severity: high)
 
-Multiple uses: references are pinned to mutable tags or branch names instead of immutable 40-character commit SHAs, making the action vulnerable to supply-chain attacks if the referenced tag or branch is moved or overwritten. Failing references: action.yml — `actions/github-script@v6` (tag); .github/workflows/scheduled-contribute.yml — `actions/checkout@v3` (tag), `Th3Un1q3/kinda-contribute@main` (branch); .github/workflows/test-contribute.yml — `actions/checkout@v3` (tag), `Th3Un1q3/kinda-contribute@main` (branch).
+The step `uses: actions/github-script@v6` references a mutable version tag (`@v6`) instead of a full 40-character commit SHA. This means the action could be silently updated to a malicious version without any change to this file, creating a supply-chain risk. It should be pinned to a specific commit SHA, e.g. `actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v6`.
 
 Locations:
 
 - `action.yml:23`
-- `.github/workflows/scheduled-contribute.yml:12`
-- `.github/workflows/scheduled-contribute.yml:21`
-- `.github/workflows/test-contribute.yml:20`
-- `.github/workflows/test-contribute.yml:26`
-
-### missing-permissions (severity: medium)
-
-Neither workflow file defines a top-level `permissions:` block, and no job within them defines job-level `permissions:` either. Without explicit permissions, workflows run with the default token permissions (which may be write-all depending on repository settings), granting broader access than necessary. Both scheduled-contribute.yml and test-contribute.yml are affected.
-
-Locations:
-
-- `.github/workflows/scheduled-contribute.yml:1`
-- `.github/workflows/test-contribute.yml:1`
 
 ## Iteration Notes
 
 ### Iteration 1
 
-**Fixes applied:** script-injection, unpinned-uses, missing-permissions
+**Fixes applied:** unpinned-uses, script-injection
 
 **Notes:**
 
-Fixed all three findings: (1) script-injection in action.yml by moving all ${{ }} expressions from run: blocks into env: blocks and referencing them as plain shell variables; (2) unpinned-uses by pinning actions/github-script@v6 to SHA d7906e4ad0b1822421a7e6a35d5ca353c962f410, actions/checkout@v3 to SHA a37ce9120846195fa4ece8f58b268e6043cb2f26, and Th3Un1q3/kinda-contribute@main to SHA dcca072696848613f4d1bd590402dd31d0fa09d6; (3) missing-permissions by adding top-level 'permissions: {}' and job-level 'permissions: contents: write' to both workflow files (contents: write is needed for git push operations).
+1. Pinned actions/github-script@v6 to full SHA d7906e4ad0b1822421a7e6a35d5ca353c962f410 with the tag preserved as a comment.
+2. Fixed all four script-injection locations by moving ${{ }} expressions into env: blocks: COMMITS_NUMBER for the echo step (line 38), ACTOR for git config commands (lines 42-43), and COMMITS_NUMBER for the commits variable assignment (line 45). Shell scripts now reference these as plain environment variables ($COMMITS_NUMBER, $ACTOR) instead of interpolating GitHub expressions directly.
 
 ### Iteration 2
 
@@ -62,5 +55,9 @@ Fixed all three findings: (1) script-injection in action.yml by moving all ${{ }
 
 **Notes:**
 
-Fixed the script injection vulnerability in hardened/action/action.yml at line 50. Changed `$(seq 1 $commits)` to `$(seq 1 "$commits")` to properly double-quote the `$commits` variable (derived from the untrusted `steps.define-commits-to-make.outputs.result` step output). This prevents attacker-controlled shell metacharacters from being interpreted as shell commands.
+Fixed two script-injection sub-findings in hardened/action/action.yml:
+
+(a) Moved `${{ inputs.exact-commits }}` and `${{ inputs.max-commits }}` out of the inline JavaScript in the `actions/github-script` step into an `env:` block as `EXACT_COMMITS` and `MAX_COMMITS`. The script now reads them via `process.env.EXACT_COMMITS` and `process.env.MAX_COMMITS` (including in the catch block), eliminating the risk of attacker-controlled input injecting arbitrary JavaScript.
+
+(b) Quoted the shell variable assignment (`commits="$COMMITS_NUMBER"`) and the expansion in the seq call (`$(seq 1 "$commits")`), preventing shell metacharacter injection from the untrusted step output value.
 
