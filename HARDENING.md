@@ -10,76 +10,41 @@
 
 **Harden Agent Version:** `2`
 
-Action **Th3Un1q3--kinda-contribute/v1.0.2** was hardened automatically. 3 finding(s) were identified and resolved across 2 iteration(s).
+Action **Th3Un1q3--kinda-contribute/v1.0.2** was hardened automatically. 2 finding(s) were identified and resolved across 2 iteration(s).
 
 ## Findings Fixed
 
-### script-injection (severity: high)
-
-Sub-rule (a): Multiple ${{ }} expressions are directly interpolated inside run: shell command strings in action.yml.
-
-1. The 'Get result' step runs: `echo "${{ fromJson(steps.define-commits-to-make.outputs.result).commitsNumber }}"` — the expression is substituted into the shell command before execution, enabling injection via a crafted step output.
-
-2. The following run: block interpolates `${{ github.actor }}` directly into git config commands (e.g. `git config --global user.email "${{ github.actor }}@users.noreply.github.com"`) and `${{ fromJson(steps.define-commits-to-make.outputs.result).commitsNumber }}` into a bare shell variable assignment (`commits=${{ ... }}`). A malicious actor controlling `github.actor` or the step output could inject arbitrary shell commands.
-
-Locations:
-
-- `action.yml:34`
-- `action.yml:37`
-- `action.yml:38`
-- `action.yml:40`
-
 ### unpinned-uses (severity: high)
 
-Multiple uses: references are pinned to mutable tags or branch names instead of immutable 40-character commit SHAs, making the action vulnerable to supply-chain attacks if the referenced tag or branch is moved or compromised.
-
-action.yml:
-  - uses: actions/github-script@v6  (tag)
-
-.github/workflows/scheduled-contribute.yml:
-  - uses: actions/checkout@v3  (tag)
-  - uses: 'Th3Un1q3/kinda-contribute@main'  (branch)
-
-.github/workflows/test-contribute.yml:
-  - uses: actions/checkout@v3  (tag)
-  - uses: 'Th3Un1q3/kinda-contribute@main'  (branch)
+The step `uses: actions/github-script@v6` references a mutable tag (`@v6`) instead of a pinned 40-character commit SHA. This exposes the action to supply-chain attacks if the tag is moved to a malicious commit.
 
 Locations:
 
-- `action.yml:21`
-- `.github/workflows/scheduled-contribute.yml:12`
-- `.github/workflows/scheduled-contribute.yml:22`
-- `.github/workflows/test-contribute.yml:20`
-- `.github/workflows/test-contribute.yml:26`
+- `action.yml:23`
 
-### missing-permissions (severity: medium)
+### script-injection (severity: high)
 
-Neither workflow file defines a top-level permissions: key, and neither job within them defines a job-level permissions: key. Without explicit permissions, the GITHUB_TOKEN is granted its default (potentially broad) permissions, violating the principle of least privilege.
-
-Affected files:
-  - .github/workflows/scheduled-contribute.yml
-  - .github/workflows/test-contribute.yml
+Multiple `${{ }}` expressions are interpolated directly inside `run:` shell command strings (rule a), allowing script injection. (1) Line 39: `echo "${{ fromJson(steps.define-commits-to-make.outputs.result).commitsNumber }}"` — a `steps.*.outputs.*` value is injected directly into the shell. (2) Line 42: `git config --global user.email "${{ github.actor }}@users.noreply.github.com"` — `github.actor` is attacker-controllable and injected directly into a shell command. (3) Line 43: `git config --global user.name "${{ github.actor }}"` — same issue. (4) Line 45: `commits=${{ fromJson(steps.define-commits-to-make.outputs.result).commitsNumber }}` — unquoted `steps.*.outputs.*` expression injected directly into the shell. Additionally, `inputs.exact-commits` and `inputs.max-commits` are interpolated directly into the `github-script` JS `script:` block (lines 28, 29, 35), which is also a script-injection vector since the values are substituted before the script is evaluated.
 
 Locations:
 
-- `.github/workflows/scheduled-contribute.yml:1`
-- `.github/workflows/test-contribute.yml:1`
+- `action.yml:28`
+- `action.yml:29`
+- `action.yml:35`
+- `action.yml:39`
+- `action.yml:42`
+- `action.yml:43`
+- `action.yml:45`
 
 ## Iteration Notes
 
 ### Iteration 1
 
-**Fixes applied:** script-injection, unpinned-uses, missing-permissions
+**Fixes applied:** unpinned-uses, script-injection
 
 **Notes:**
 
-Fixed all three findings:
-
-1. script-injection (action.yml): Moved all ${{ }} expressions from run: shell strings into env: blocks. The github-script step now reads inputs via process.env instead of inline interpolation. The 'Get result' step and the git config/commit step both use env: variables (COMMITS_NUMBER, ACTOR) referenced as plain shell variables.
-
-2. unpinned-uses: Pinned all action references to full 40-char SHAs: actions/github-script@v6 → d7906e4ad0b1822421a7e6a35d5ca353c962f410, actions/checkout@v3 → a37ce9120846195fa4ece8f58b268e6043cb2f26, Th3Un1q3/kinda-contribute@main → 9984bd619f7b4528b4dd7b365ac1c9a56fff0a2b.
-
-3. missing-permissions: Added `permissions: {}` at the top level of both .github/workflows/scheduled-contribute.yml and .github/workflows/test-contribute.yml. The workflows rely on a PERSONAL_ACCESS_TOKEN secret for git operations, so GITHUB_TOKEN requires no permissions.
+1. Pinned actions/github-script@v6 to full SHA d7906e4ad0b1822421a7e6a35d5ca353c962f410 with # v6 comment. 2. Fixed all script-injection issues: moved inputs.exact-commits and inputs.max-commits into env: block on the github-script step and updated JS to use process.env.*; moved github.actor into GITHUB_ACTOR env var; moved fromJson(steps.define-commits-to-make.outputs.result).commitsNumber into COMMITS_NUMBER env var for both run: steps that used it. All ${{ }} expressions are now in env: blocks, not inline in shell or JS script strings.
 
 ### Iteration 2
 
@@ -87,5 +52,5 @@ Fixed all three findings:
 
 **Notes:**
 
-Fixed script injection vulnerability in action.yml by quoting the `commits` variable in both its assignment (`commits="$COMMITS_NUMBER"`) and its use in the seq command substitution (`$(seq 1 "$commits")`). This prevents attacker-controlled values from the step output from being interpreted as shell metacharacters.
+Fixed unquoted variable expansion in the `for` loop's `seq` command. Changed `commits=$COMMITS_NUMBER` to `commits="$COMMITS_NUMBER"` and `$(seq 1 $commits)` to `$(seq 1 "$commits")` in action.yml. This prevents shell metacharacter injection from the workflow-controllable `COMMITS_NUMBER` environment variable (sourced from `steps.define-commits-to-make.outputs.result`).
 
